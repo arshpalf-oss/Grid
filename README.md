@@ -1,110 +1,88 @@
 # Grid
 
-A spreadsheet with an Excel-compatible calculation engine and a UI that is built
-to be re-skinned. Built from scratch: tokenizer → parser → evaluator, not a
-`eval()` wrapper.
+**Grid is a spreadsheet for Windows, written from scratch in C++ — a native `.exe` that
+runs offline, with no browser and no runtime to install.**
+
+It follows Excel's own architecture: a Win32 window that paints a virtualised cell
+canvas with GDI, with a separate calculation engine behind it (tokenizer → parser →
+evaluator over a sparse cell store, with a computed-value cache and circular-reference
+detection), and its own number/date formatting layer.
+
+```
+Grid.exe — 1.3 MB, x86-64, GUI subsystem, statically linked
+```
+
+## Get it running
+
+A ready-built executable is in the workspace at **`native/release/Grid.exe`**.
+
+To rebuild or build on another machine:
 
 ```bash
-npm install
-npm run dev      # http://localhost:5173
-npm test         # engine + UI test suite
-npm run build    # production bundle in dist/
+# on Windows: Visual Studio or MinGW-w64 can compile native/ui/*.cpp + native/engine/engine.cpp
+# on Linux/macOS: cross-compile to Windows with zig (bundled clang + mingw-w64)
+pip install ziglang
+cd native
+./build.sh            # → release/Grid.exe
 ```
 
-## What works today
+Engine tests need no Windows and no GUI — they are plain C++17:
 
-**Calculation engine (`src/engine/`)**
-
-- Full formula grammar: A1 references, `$` anchoring, ranges, whole columns
-  (`A:A`) and rows (`1:1`), cross-sheet references (`Data!A1`), quoted sheet names
-  (`'Q1 Sales'!B2`), unary/postfix operators and Excel's precedence quirks
-  (`-2^2 = 4`, `2^3^2 = 64`, `2^2% = 2^0.02`, `^` left-associative).
-- Excel coercion rules: blanks read as `0` / `""` / `FALSE`, text-numbers coerce,
-  cross-type comparison ordering (numbers < text < logicals), `""` vs empty cell.
-- Excel error values and propagation: `#DIV/0!`, `#VALUE!`, `#REF!`, `#NAME?`,
-  `#NUM!`, `#N/A`, `#NULL!`, `#SPILL!`, `#CALC!`.
-- Lazy, pull-based recalculation with cycle detection (circular cells report
-  `circular` and evaluate to `0`, like Excel's warning mode).
-- Dynamic arrays with spill ranges: array results spill into neighbours, conflicts
-  raise `#SPILL!`, and spilled cells are readable by other formulas.
-- Array lifting for operators — `SUMPRODUCT((A1:A9="x")*B1:B9)` works.
-- ~190 worksheet functions across Math, Statistical, Text, Date, Logical, Lookup,
-  Financial and Information categories (`src/engine/functions/`).
-- Lazy special forms: `IF`, `IFS`, `IFERROR`, `IFNA`, `CHOOSE`, `SWITCH`, `LET`
-  (so the untaken branch is never evaluated).
-- Number-format engine: sections (`pos;neg;zero;text`), `#,##0.00`, scaling commas,
-  percent, scientific, currency literals, and date/time tokens including
-  `dddd, mmmm d, yyyy`, `h:mm AM/PM` and elapsed `[h]:mm`.
-- Excel's 1900 date system including the phantom 1900-02-29 leap-day bug.
-- Workbook model: multiple sheets, per-sheet column widths / row heights,
-  frozen-pane metadata, insert/delete rows and columns, defined names,
-  JSON serialisation and autosave.
-
-**Application (`src/app/`)**
-
-- Virtualised grid: 1,048,576 × 16,384 cells, only the visible window is rendered.
-- Keyboard model: arrows, Tab/Shift+Tab, Enter/Shift+Enter, PageUp/Down,
-  Home / Ctrl+Home, Ctrl+Arrow block jumps, F2, Esc, Delete, Ctrl+B/I/U,
-  Ctrl+Z / Ctrl+Y.
-- Selection: click, Shift+click, drag, whole row/column, select-all, fill handle.
-- Editing with in-cell input plus the formula bar, and a Name Box that accepts
-  `A1`, `A1:B9`.
-- Clipboard with real Excel semantics: copy keeps formulas and relative-reference
-  shifting on paste; cut moves; plain-text TSV paste from other apps.
-- Formatting: bold/italic/underline/strike, font family/size, text and fill
-  colour, alignment, wrap, number-format presets and customs.
-- Undo/redo across edits, formatting, structural changes; autosave to
-  `localStorage`; JSON save/open; CSV export.
-- Function reference panel with search (inserts a call into the formula bar).
-- Status bar with live Sum / Average / Count for the selection.
-
-## Architecture
-
-```
-src/engine/
-  tokenizer.ts    formula lexer (references, sheet names, row/col ranges)
-  parser.ts       recursive-descent parser → AST (Excel precedence)
-  evaluator.ts    AST evaluation, special forms, array lifting
-  workbook.ts     sheets, cells, computed cache, spill registry, recalculation
-  values.ts       value model + Excel coercions (RangeValue, ArrayValue)
-  format.ts       number/date format engine
-  dates.ts        serial <-> date, 1900 leap-year bug
-  functions/      function library, registered by category
-src/app/
-  store.ts        UI state, undo/redo, clipboard, persistence
-  components/     Ribbon, FormulaBar, Grid, SheetTabs, StatusBar
-  styles.css      all visual tokens live in :root
+```bash
+cd native && ./test.sh    # 139 checks, 0 failures
 ```
 
-**Recalculation model.** Any mutation bumps an epoch and drops the computed-value
-cache. Values are then recomputed lazily as the UI (or another formula) pulls on
-them, so the cost tracks what is actually displayed or referenced rather than the
-size of the sheet. The next performance step is a dependency graph with
-fine-grained invalidation, which lets recalculation be incremental.
+On Windows you can also verify a build without opening the window:
 
-## Re-skinning
+```
+Grid.exe --selftest
+```
 
-Every colour, radius and size in the interface resolves from CSS custom
-properties declared in `:root` in `src/app/styles.css` (`--accent`, `--bg-surface`,
-`--grid-line`, `--row-head-w`, …). Replacing that block re-themes the whole app
-without touching a component.
+See **[native/README.md](native/README.md)** for the full architecture, function list,
+file format and the honest list of what is not implemented yet.
 
-## Known gaps (honest roadmap)
+## What you get
 
-Excel is a decades-deep product; this is a working foundation, not a clone of
-every feature. Not yet implemented:
+* A real spreadsheet window: menu bar, formatting toolbar, name box and formula bar,
+  virtualised grid with row/column headers, sheet tabs, status bar with live
+  Average/Count/Sum of the selection.
+* Formulas with Excel semantics: Excel operator precedence, `$` anchoring, ranges,
+  whole columns/rows, cross-sheet references, error values, coercion rules and
+  Excel's 1900 date system (including its phantom leap day, so serials match exactly).
+* 135+ worksheet functions across maths, statistics, conditional aggregation, text,
+  logic, lookup, date and financial categories — `SUMIFS`, `SUMPRODUCT`, `XLOOKUP`,
+  `INDEX`/`MATCH`, `TEXTJOIN`, `LET`, `PMT`, `DATEDIF`, `TEXT` and many more.
+* Formatting: bold/italic/underline, wrap, alignment, font and size, text and fill
+  colours, borders, and an Excel-style number-format engine (currency, percent,
+  thousands separators, negatives in parentheses, dates, scientific, custom codes).
+* Editing workflow you already know: drag selection, Shift+click, Ctrl+arrows,
+  Ctrl+Space/Shift+Space, F2, double-click, `Ctrl+1` Format Cells, fill handle,
+  Ctrl+D/Ctrl+R, copy/cut/paste with reference shifting, find and replace.
+* Structural edits that keep formulas correct: inserting or deleting rows and columns
+  rewrites references (ranges spanning an insertion grow; deleted targets become
+  `#REF!`).
+* 100 levels of undo/redo, `.grid` save/open, CSV import and export, dirty-state
+  prompts.
 
-- Charting, pivot tables, pivot charts, sparklines, conditional formatting rules.
-- Data validation, data tables, Goal Seek / Solver, Power Query, macros (VBA), Python.
-- Merged cells, frozen-pane *interaction* (metadata exists, UI not wired),
-  borders per edge, rich text inside a cell.
-- Formula rewriting on row/column insert (references currently do **not** adjust).
-- Named ranges are supported by the engine but have no UI yet. `LAMBDA`, `MAP`,
-  `REDUCE`, `SCAN`, `BYROW`, `BYCOL` are not implemented.
-- Undo granularity for sheet-level operations, and 3-D references (`Sheet1:Sheet3!A1`
-  parses but evaluates to `#REF!`).
-- XLSX import/export (JSON and CSV today), printing, file locking, collaboration.
+## Project layout
 
-The engine is structured so these land as additions, not rewrites: new functions
-are a `define()` call, new formats extend `format.ts`, and new commands become
-`store` mutations that automatically participate in undo and autosave.
+```
+native/          the application
+  engine/        calculation engine — portable C++17, no Windows API
+  ui/            Win32 + GDI desktop shell
+  tests/         engine conformance tests
+  build.sh       cross-compile to release/Grid.exe
+  test.sh        run the engine tests
+web/             the earlier browser prototype (TypeScript/React), kept for reference
+```
+
+`web/` is not the deliverable any more. It is the prototype whose engine semantics were
+ported to C++ and it remains only as a reference implementation; run it with
+`cd web && npm install && npm run dev` if you want to compare behaviour.
+
+## Not there yet
+
+Charts, pivot tables, `.xlsx` import/export, conditional formatting, data validation,
+tables, named ranges, dynamic arrays/spilling, printing and macros are **not**
+implemented. Grid is a working spreadsheet today, not a drop-in Excel replacement; the
+gap list is itemised in [native/README.md](native/README.md#what-is-not-implemented-yet).
