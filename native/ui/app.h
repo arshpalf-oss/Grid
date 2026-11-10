@@ -346,5 +346,8 @@ bool promptText(const std::wstring& title, const std::wstring& label, std::strin
 int promptChoice(const std::wstring& title, const std::wstring& label, const wchar_t** options, int count);
 void showError(const std::wstring& message);
 
+// Headless engine checks; returns the number of failures (0 = success).
+int runSelfTest(std::string& report);
+
 }  // namespace ui
 }  // namespace grid

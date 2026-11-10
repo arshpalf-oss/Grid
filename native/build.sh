@@ -35,6 +35,7 @@ SOURCES=(
   ui/chrome.cpp
   ui/commands.cpp
   ui/dialogs.cpp
+  ui/selftest.cpp
   ui/main.cpp
 )
 

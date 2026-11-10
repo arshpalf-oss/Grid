@@ -508,6 +508,23 @@ namespace grid {
 namespace ui {
 
 int runApp(HINSTANCE instance, int showCommand) {
+  if (std::wstring(GetCommandLineW()).find(L"--selftest") != std::wstring::npos) {
+    std::string report;
+    int failures = runSelfTest(report);
+    wchar_t tmpDir[MAX_PATH] = L"";
+    GetTempPathW(MAX_PATH, tmpDir);
+    std::wstring path = std::wstring(tmpDir) + L"grid-selftest.txt";
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+      DWORD written = 0;
+      WriteFile(h, report.data(), static_cast<DWORD>(report.size()), &written, nullptr);
+      CloseHandle(h);
+    }
+    std::wstring message = widen(report) + L"\n\nReport written to:\n" + path;
+    MessageBoxW(nullptr, message.c_str(), failures == 0 ? L"Grid self-test: passed" : L"Grid self-test: FAILED",
+                MB_OK | (failures == 0 ? MB_ICONINFORMATION : MB_ICONERROR));
+    return failures;
+  }
   SetProcessDPIAware();
 
   WNDCLASSEXW wc{};

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../engine/engine.h"
+#include "selftest_core.h"
 
 using namespace grid;
 
@@ -450,6 +451,13 @@ int main() {
   testShiftFormula();
   testInsertDeleteRefs();
   testSnapshotRoundTrip();
+
+  {
+    std::string report;
+    int failures = selftest::runEngineSelfTest(report, "/tmp/grid-selftest.grid");
+    if (failures != 0) std::printf("%s\n", report.c_str());
+    checkImpl(failures == 0, "embedded self-test", std::to_string(failures) + " failures", "0 failures", __LINE__);
+  }
 
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;

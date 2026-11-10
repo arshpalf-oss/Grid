@@ -19,7 +19,7 @@ native/
     chrome.cpp toolbar, formula bar, sheet tabs, status bar
     commands.cpp every command: navigation, formatting, clipboard, fills, undo, files
     dialogs.cpp Format Cells, Find & Replace, prompts
-  tests/       engine conformance tests (138 assertions)
+  tests/       engine conformance tests (139 assertions, shared with --selftest)
   build.sh     cross-compiles release/Grid.exe
   test.sh      runs the engine tests
 ```
@@ -46,8 +46,19 @@ Running the engine tests does not need Windows at all, because the engine is pla
 standard C++:
 
 ```bash
-cd native && ./test.sh         # 138 checks, 0 failures
+cd native && ./test.sh         # 139 checks, 0 failures
 ```
+
+The executable carries the same engine checks internally, so you can verify a build on
+any Windows machine without opening a window:
+
+```
+Grid.exe --selftest
+```
+
+It runs the engine assertions (formulas, ranges, functions, formats, dates, recalc,
+reference rewriting, workbook round trip), writes `%TEMP%\grid-selftest.txt` and shows
+the pass/fail summary.
 
 ## How it is put together
 

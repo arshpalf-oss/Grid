@@ -29,7 +29,13 @@ cd native
 Engine tests need no Windows and no GUI — they are plain C++17:
 
 ```bash
-cd native && ./test.sh    # 138 checks, 0 failures
+cd native && ./test.sh    # 139 checks, 0 failures
+```
+
+On Windows you can also verify a build without opening the window:
+
+```
+Grid.exe --selftest
 ```
 
 See **[native/README.md](native/README.md)** for the full architecture, function list,
