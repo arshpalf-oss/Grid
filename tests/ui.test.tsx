@@ -100,3 +100,65 @@ describe('demo workbook', () => {
     expect(store.wb.getScalar(id, 11, 3)).toBe(9);
   });
 });
+
+describe('grid interactions', () => {
+  it('fills a pattern and shifts relative references', async () => {
+    await mount();
+    await act(async () => {
+      store.selectRange(30, 0, 31, 0);
+      store.wb.setCell(store.state.sheetId, 30, 0, '1');
+      store.wb.setCell(store.state.sheetId, 31, 0, '2');
+      store.selectRange(30, 0, 31, 0);
+      store.fillRange(30, 0, 33, 0, 30, 0, 31, 0);
+    });
+    expect(store.wb.getScalar(store.state.sheetId, 32, 0)).toBe(1);
+    expect(store.wb.getScalar(store.state.sheetId, 33, 0)).toBe(2);
+  });
+
+  it('selects the spill anchor when a spilled cell is clicked', async () => {
+    await mount();
+    await act(async () => {
+      store.selectRange(40, 0, 40, 0);
+      store.wb.setCell(store.state.sheetId, 40, 0, '=SEQUENCE(3)');
+    });
+    const spilled = store.selectSpillAnchor(41, 0);
+    expect(spilled).toBe(true);
+    expect(store.activeCell.row).toBe(40);
+  });
+
+  it('autofits a column to its content', async () => {
+    await mount();
+    const before = store.wb.colWidth(store.state.sheetId, 1);
+    await act(async () => {
+      store.wb.setCell(store.state.sheetId, 50, 1, 'a very wide value in this column');
+      store.autofitColumn(1);
+    });
+    expect(store.wb.colWidth(store.state.sheetId, 1)).toBeGreaterThan(before);
+  });
+});
+
+describe('editing lifecycle', () => {
+  it('commits the draft when the selection moves', async () => {
+    await mount();
+    await act(async () => {
+      store.selectRange(60, 0, 60, 0);
+      store.beginEdit();
+      store.setDraft('committed on click');
+      store.select(61, 0);
+    });
+    expect(store.wb.getRaw(store.state.sheetId, 60, 0)).toBe('committed on click');
+    expect(store.state.editing).toBeNull();
+  });
+
+  it('undo restores the previous value', async () => {
+    await mount();
+    await act(async () => {
+      store.selectRange(62, 0, 62, 0);
+      store.setCellRaw(62, 0, 'first');
+      store.setCellRaw(62, 0, 'second');
+    });
+    expect(store.wb.getRaw(store.state.sheetId, 62, 0)).toBe('second');
+    await act(async () => store.undo());
+    expect(store.wb.getRaw(store.state.sheetId, 62, 0)).toBe('first');
+  });
+});

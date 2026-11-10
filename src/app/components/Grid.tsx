@@ -79,7 +79,6 @@ export function GridView(): React.ReactElement {
   const [drag, setDrag] = useState<DragMode>(null);
   const [fillPreview, setFillPreview] = useState<{ r1: number; c1: number; r2: number; c2: number } | null>(null);
   const [previewWidths, setPreviewWidths] = useState<Map<number, number> | null>(null);
-  const [renamingCol, setRenamingCol] = useState<number | null>(null);
 
   const sheet = store.wb.sheet(state.sheetId);
   const version = state.version;
@@ -170,6 +169,10 @@ export function GridView(): React.ReactElement {
     const pos = cellAt(e.clientX, e.clientY);
     if (!pos) return;
     scrollRef.current?.focus();
+    if (!e.shiftKey && store.selectSpillAnchor(pos.row, pos.col)) {
+      setDrag('select');
+      return;
+    }
     store.select(pos.row, pos.col, e.shiftKey);
     setDrag('select');
   };
@@ -193,7 +196,7 @@ export function GridView(): React.ReactElement {
         const r2 = Math.max(base.r2, fillPreview.r2);
         const c2 = Math.max(base.c2, fillPreview.c2);
         if (r1 !== base.r1 || c1 !== base.c1 || r2 !== base.r2 || c2 !== base.c2) {
-          store.fillRange(r1, c1, r2, c2, base.r1, base.c1);
+          store.fillRange(r1, c1, r2, c2, base.r1, base.c1, base.r2, base.c2);
           store.select(r1, c1);
         }
         setFillPreview(null);
@@ -395,7 +398,7 @@ export function GridView(): React.ReactElement {
         }}
         onDoubleClick={(e) => {
           e.stopPropagation();
-          setRenamingCol(col);
+          store.autofitColumn(col);
         }}
       >
         <span>{store.columnLabel(col)}</span>
@@ -599,49 +602,7 @@ export function GridView(): React.ReactElement {
         </div>
       </div>
 
-      {renamingCol !== null ? (
-        <RenamePrompt
-          title="Column width"
-          initial={String(Math.round(cols.size(renamingCol)))}
-          onCancel={() => setRenamingCol(null)}
-          onConfirm={(value) => {
-            const n = Number(value);
-            if (Number.isFinite(n) && n > 10) store.setColWidth(renamingCol, n);
-            setRenamingCol(null);
-          }}
-        />
-      ) : null}
     </div>
   );
 }
 
-function RenamePrompt(props: {
-  title: string;
-  initial: string;
-  onConfirm: (value: string) => void;
-  onCancel: () => void;
-}): React.ReactElement {
-  const [value, setValue] = useState(props.initial);
-  return (
-    <div className="modal-backdrop" onMouseDown={props.onCancel}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>{props.title}</h3>
-        <input
-          autoFocus
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') props.onConfirm(value);
-            if (e.key === 'Escape') props.onCancel();
-          }}
-        />
-        <div className="modal-actions">
-          <button onClick={props.onCancel}>Cancel</button>
-          <button className="primary" onClick={() => props.onConfirm(value)}>
-            OK
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}

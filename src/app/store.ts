@@ -70,6 +70,7 @@ export class GridStore {
   private clipboard: { cells: ClipCell[][]; from: { row: number; col: number }; cut: boolean } | null = null;
   private internalText: string | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private committing = false;
 
   constructor() {
     this.wb = GridStore.loadSaved() ?? seedWorkbook();
@@ -114,8 +115,19 @@ export class GridStore {
     this.emit({ sheetId: snap.sheetId, selection: snap.selection, editing: null });
   }
 
+  /** Any interaction commits whatever is currently being typed. */
+  private commitIfEditing(): void {
+    if (this.state.editing) this.mutate(() => {});
+  }
+
   private mutate(fn: () => void): void {
     const before = this.capture();
+    if (!this.committing && this.state.editing) {
+      const edit = this.state.editing;
+      if (edit.draft !== this.raw(edit.row, edit.col)) {
+        this.wb.setCell(this.state.sheetId, edit.row, edit.col, edit.draft);
+      }
+    }
     fn();
     this.past.push(before);
     if (this.past.length > HISTORY_LIMIT) this.past.shift();
@@ -132,6 +144,7 @@ export class GridStore {
   }
 
   undo(): void {
+    this.commitIfEditing();
     const snap = this.past.pop();
     if (!snap) return;
     this.future.push(this.capture());
@@ -140,6 +153,7 @@ export class GridStore {
   }
 
   redo(): void {
+    this.commitIfEditing();
     const snap = this.future.pop();
     if (!snap) return;
     this.past.push(this.capture());
@@ -213,6 +227,7 @@ export class GridStore {
   // ----------------------------------------------------------- selection
 
   select(row: number, col: number, extend = false): void {
+    this.commitIfEditing();
     const r = Math.max(0, Math.min(MAX_ROW_INDEX, row));
     const c = Math.max(0, Math.min(MAX_COL_INDEX, col));
     const sel = this.state.selection;
@@ -230,6 +245,7 @@ export class GridStore {
   }
 
   selectColumn(col: number, extend = false): void {
+    this.commitIfEditing();
     const sel = this.state.selection;
     if (extend) {
       this.emit({ selection: { ...sel, focusRow: MAX_ROW_INDEX, focusCol: col } });
@@ -239,6 +255,7 @@ export class GridStore {
   }
 
   selectRow(row: number, extend = false): void {
+    this.commitIfEditing();
     const sel = this.state.selection;
     if (extend) {
       this.emit({ selection: { ...sel, focusRow: row, focusCol: MAX_COL_INDEX } });
@@ -248,6 +265,7 @@ export class GridStore {
   }
 
   selectRange(r1: number, c1: number, r2: number, c2: number): void {
+    this.commitIfEditing();
     this.emit({
       selection: {
         anchorRow: Math.max(0, Math.min(MAX_ROW_INDEX, r1)),
@@ -260,6 +278,7 @@ export class GridStore {
   }
 
   selectAllCells(): void {
+    this.commitIfEditing();
     this.emit({
       selection: { anchorRow: 0, anchorCol: 0, focusRow: MAX_ROW_INDEX, focusCol: MAX_COL_INDEX },
     });
@@ -324,7 +343,12 @@ export class GridStore {
     if (!editing) return;
     const { row, col, draft } = editing;
     if (draft !== this.raw(row, col)) {
-      this.mutate(() => this.wb.setCell(this.state.sheetId, row, col, draft));
+      this.committing = true;
+      try {
+        this.mutate(() => this.wb.setCell(this.state.sheetId, row, col, draft));
+      } finally {
+        this.committing = false;
+      }
     } else {
       this.emit({ editing: null });
     }
@@ -510,19 +534,71 @@ export class GridStore {
     return true;
   }
 
-  /** Fill the selection from its first cell/row/column (fill handle). */
-  fillRange(r1: number, c1: number, r2: number, c2: number, sourceRow: number, sourceCol: number): void {
+  /**
+   * Fill handle: repeat the source block across the target area, shifting
+   * relative references the way Excel does when you drag the handle.
+   */
+  fillRange(
+    targetR1: number,
+    targetC1: number,
+    targetR2: number,
+    targetC2: number,
+    srcR1: number,
+    srcC1: number,
+    srcR2: number,
+    srcC2: number
+  ): void {
     const id = this.state.sheetId;
+    const srcH = srcR2 - srcR1 + 1;
+    const srcW = srcC2 - srcC1 + 1;
+    if (srcH < 1 || srcW < 1) return;
+
     this.mutate(() => {
-      for (let r = r1; r <= r2; r++) {
-        for (let c = c1; c <= c2; c++) {
-          if (r === sourceRow && c === sourceCol) continue;
-          const raw = this.wb.getRaw(id, sourceRow, sourceCol);
+      for (let r = targetR1; r <= targetR2; r++) {
+        for (let c = targetC1; c <= targetC2; c++) {
+          const insideSource = r >= srcR1 && r <= srcR2 && c >= srcC1 && c <= srcC2;
+          if (insideSource) continue;
+          const i = (((r - srcR1) % srcH) + srcH) % srcH;
+          const j = (((c - srcC1) % srcW) + srcW) % srcW;
+          const sr = srcR1 + i;
+          const sc = srcC1 + j;
+          const raw = this.wb.getRaw(id, sr, sc);
           if (raw === '') continue;
-          this.wb.setCell(id, r, c, shiftFormula(raw, r - sourceRow, c - sourceCol), this.wb.getStyle(id, sourceRow, sourceCol));
+          this.wb.setCell(
+            id,
+            r,
+            c,
+            shiftFormula(raw, r - sr, c - sc),
+            this.wb.getStyle(id, sr, sc)
+          );
         }
       }
     });
+  }
+
+  /** Fit a column to its widest visible value (double-click a header). */
+  autofitColumn(col: number): void {
+    const id = this.state.sheetId;
+    const bounds = this.wb.usedBounds(id);
+    const lastRow = Math.min(bounds ? bounds.r2 : 200, 5000);
+    let widest = 4;
+    for (let row = 0; row <= lastRow; row++) {
+      const text = this.wb.getDisplayText(id, row, col);
+      if (!text) continue;
+      const hasFill = !!this.wb.getStyle(id, row, col)?.fill;
+      void hasFill;
+      widest = Math.max(widest, text.length);
+    }
+    const width = Math.max(40, Math.min(420, widest * 7.6 + 18));
+    this.setColWidth(col, width);
+  }
+
+  /** Select the anchor of a spilled array (clicking a spilled cell). */
+  selectSpillAnchor(row: number, col: number): boolean {
+    const owner = this.wb.spillOwnerOf(this.state.sheetId, row, col);
+    if (!owner) return false;
+    this.select(owner.row, owner.col);
+    return true;
   }
 
   // ----------------------------------------------------------- structure
@@ -564,6 +640,7 @@ export class GridStore {
   }
 
   selectSheet(id: string): void {
+    this.commitIfEditing();
     if (!this.wb.getSheet(id)) return;
     this.emit({
       sheetId: id,
